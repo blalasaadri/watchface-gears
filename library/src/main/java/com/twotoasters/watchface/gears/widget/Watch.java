@@ -126,7 +126,7 @@ public class Watch {
         }
 
         watchfaceRef = new WeakReference<IWatchface>(watchface);
-        init(watchface);
+        init();
     }
 
 
