@@ -14,16 +14,23 @@ import android.os.Handler;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.support.annotation.NonNull;
-import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.view.ViewDebug.ExportedProperty;
 
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.joda.time.LocalTime;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.DateTimeFormatterBuilder;
+
 import java.lang.ref.WeakReference;
-import java.util.Calendar;
 import java.util.Locale;
 import java.util.TimeZone;
 
 public class Watch {
+
+    private static final LocalTime TEST_TIME = LocalTime.parse("01:02:03");
 
     private static final String ACTION_KEEP_WATCHFACE_AWAKE = "intent.action.keep.watchface.awake";
 
@@ -37,10 +44,13 @@ public class Watch {
      *
      * @see #setFormat12Hour(CharSequence)
      * @see #getFormat12Hour()
-     *
-     * @deprecated Let the system use locale-appropriate defaults instead.
      */
-    public static final CharSequence DEFAULT_FORMAT_12_HOUR = "h:mm:ss a";
+    public static final DateTimeFormatter DEFAULT_FORMAT_12_HOUR =
+            new DateTimeFormatterBuilder().appendHourOfHalfday(1)
+                    .appendLiteral(':').appendMinuteOfHour(2)
+                    .appendLiteral(':').appendSecondOfMinute(2)
+                    .appendLiteral(' ').appendHalfdayOfDayText()
+                    .toFormatter();
 
     /**
      * The default formatting pattern in 24-hour mode. This pattern is used
@@ -51,22 +61,25 @@ public class Watch {
      *
      * @see #setFormat24Hour(CharSequence)
      * @see #getFormat24Hour()
-     *
-     * @deprecated Let the system use locale-appropriate defaults instead.
      */
-    public static final CharSequence DEFAULT_FORMAT_24_HOUR = "H:mm:ss";
+    public static final DateTimeFormatter DEFAULT_FORMAT_24_HOUR =
+            new DateTimeFormatterBuilder().appendHourOfDay(1)
+                    .appendLiteral(':').appendMinuteOfHour(2)
+                    .appendLiteral(':').appendSecondOfMinute(2)
+                    .toFormatter();
 
-    private CharSequence mFormat12;
-    private CharSequence mFormat24;
+
+    private DateTimeFormatter mFormat12;
+    private DateTimeFormatter mFormat24;
 
     @ExportedProperty
-    private CharSequence mFormat;
+    private DateTimeFormatter mFormat;
+
     @ExportedProperty
     private boolean mHasSeconds;
 
     private boolean mAttached;
 
-    private Calendar mTime;
     private String mTimeZone;
 
     private AlarmManager alarmManager;
@@ -89,8 +102,7 @@ public class Watch {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (mTimeZone == null && Intent.ACTION_TIMEZONE_CHANGED.equals(intent.getAction())) {
-                final String timeZone = intent.getStringExtra("time-zone");
-                createTime(timeZone);
+                mTimeZone = intent.getStringExtra("time-zone");
             }
 
             if (!ACTION_KEEP_WATCHFACE_AWAKE.equals(intent.getAction())) {
@@ -125,24 +137,24 @@ public class Watch {
             throw new AssertionError("Watchface can not be null");
         }
 
-        watchfaceRef = new WeakReference<IWatchface>(watchface);
+        watchfaceRef = new WeakReference<>(watchface);
         init();
     }
 
 
     private void init() {
         if (mFormat12 == null || mFormat24 == null) {
+            Locale locale = getWatchface().getContext().getResources().getConfiguration().locale;
             if (mFormat12 == null) {
-                mFormat12 = DEFAULT_FORMAT_12_HOUR;
+                mFormat12 = DEFAULT_FORMAT_12_HOUR.withLocale(locale);
             }
             if (mFormat24 == null) {
-                mFormat24 = DEFAULT_FORMAT_24_HOUR;
+                mFormat24 = DEFAULT_FORMAT_24_HOUR.withLocale(locale);
             }
         }
 
         initAlarmManager();
 
-        createTime(mTimeZone);
         // Wait until onAttachedToWindow() to handle the ticker
         chooseFormat(false);
     }
@@ -161,14 +173,6 @@ public class Watch {
         }
     }
 
-    private void createTime(String timeZone) {
-        if (timeZone != null) {
-            mTime = Calendar.getInstance(TimeZone.getTimeZone(timeZone));
-        } else {
-            mTime = Calendar.getInstance();
-        }
-    }
-
     /**
      * Returns the formatting pattern used to display the date and/or time
      * in 12-hour mode. The formatting pattern syntax is described in
@@ -180,7 +184,8 @@ public class Watch {
      * @see #is24HourModeEnabled()
      */
     @ExportedProperty
-    public CharSequence getFormat12Hour() {
+    @NonNull
+    public DateTimeFormatter getFormat12Hour() {
         return mFormat12;
     }
 
@@ -209,8 +214,8 @@ public class Watch {
      *
      * @attr ref android.R.styleable#TextClock_format12Hour
      */
-    public void setFormat12Hour(CharSequence format) {
-        mFormat12 = format;
+    public void setFormat12Hour(@NonNull CharSequence format) {
+        mFormat12 = DateTimeFormat.forPattern(format.toString());
 
         chooseFormat();
         onTimeChanged();
@@ -227,7 +232,8 @@ public class Watch {
      * @see #is24HourModeEnabled()
      */
     @ExportedProperty
-    public CharSequence getFormat24Hour() {
+    @NonNull
+    public DateTimeFormatter getFormat24Hour() {
         return mFormat24;
     }
 
@@ -255,8 +261,8 @@ public class Watch {
      *
      * @attr ref android.R.styleable#TextClock_format24Hour
      */
-    public void setFormat24Hour(CharSequence format) {
-        mFormat24 = format;
+    public void setFormat24Hour(@NonNull CharSequence format) {
+        mFormat24 = DateTimeFormat.forPattern(format.toString());
 
         chooseFormat();
         onTimeChanged();
@@ -281,11 +287,16 @@ public class Watch {
      * @see #getFormat24Hour()
      */
     public boolean is24HourModeEnabled() {
-        return hasWatchface() ? DateFormat.is24HourFormat(getWatchface().getContext()) : false;
+        return hasWatchface() && DateFormat.is24HourFormat(getWatchface().getContext());
     }
 
-    public Calendar getTime() {
-        return mTime;
+    @SuppressWarnings("unused")
+    public DateTime getTime() {
+        if(mTimeZone == null) {
+            return DateTime.now();
+        } else {
+            return DateTime.now(DateTimeZone.forID(mTimeZone));
+        }
     }
 
     /**
@@ -298,6 +309,7 @@ public class Watch {
      * @see java.util.TimeZone#getAvailableIDs()
      * @see #setTimeZone(String)
      */
+    @NonNull
     public String getTimeZone() {
         return mTimeZone;
     }
@@ -317,10 +329,9 @@ public class Watch {
      *
      * @attr ref android.R.styleable#TextClock_timeZone
      */
-    public void setTimeZone(String timeZone) {
+    public void setTimeZone(@NonNull String timeZone) {
         mTimeZone = timeZone;
 
-        createTime(timeZone);
         onTimeChanged();
     }
 
@@ -340,7 +351,8 @@ public class Watch {
      *
      * @hide
      */
-    public CharSequence getFormat() {
+    @SuppressWarnings("unused")
+    public DateTimeFormatter getFormat() {
         return mFormat;
     }
 
@@ -363,7 +375,7 @@ public class Watch {
         }
 
         boolean hadSeconds = mHasSeconds;
-        mHasSeconds = !TextUtils.isEmpty(mFormat) ? mFormat.toString().contains(String.valueOf(DateFormat.SECONDS)) : false;
+        mHasSeconds = mFormat.print(TEST_TIME).contains("03");
 
         if (hasWatchface()) {
             if (handleTicker && mAttached && hadSeconds != mHasSeconds) {
@@ -392,8 +404,6 @@ public class Watch {
 
             registerReceiver();
             registerObserver();
-
-            createTime(mTimeZone);
 
             if (hasWatchface() && getWatchface().handleSecondsInDimMode()) {
                 alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 1000, 1000, getPendingIntent());
@@ -425,7 +435,9 @@ public class Watch {
     }
 
     private PendingIntent getPendingIntent() {
-        return hasWatchface() ? PendingIntent.getBroadcast(getWatchface().getContext(), 0, new Intent(ACTION_KEEP_WATCHFACE_AWAKE), 0) : null;
+        return hasWatchface()
+                ? PendingIntent.getBroadcast(getWatchface().getContext(), 0,
+                new Intent(ACTION_KEEP_WATCHFACE_AWAKE), 0) : null;
     }
 
     private void registerReceiver() {
@@ -437,8 +449,12 @@ public class Watch {
         filter.addAction(ACTION_KEEP_WATCHFACE_AWAKE);
 
         if (hasWatchface()) {
-            getWatchface().getContext().registerReceiver(mIntentReceiver, filter, null, getWatchface().getHandler());
-            getWatchface().getContext().registerReceiver(mBatInfoReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED), null, getWatchface().getHandler());
+            getWatchface().getContext()
+                    .registerReceiver(mIntentReceiver, filter, null, getWatchface().getHandler());
+            getWatchface().getContext()
+                    .registerReceiver(mBatInfoReceiver,
+                            new IntentFilter(Intent.ACTION_BATTERY_CHANGED), null,
+                            getWatchface().getHandler());
         }
     }
 
@@ -446,7 +462,8 @@ public class Watch {
         if (hasWatchface()) {
             final Context context = getWatchface().getContext();
             final ContentResolver resolver = context.getContentResolver();
-            resolver.registerContentObserver(Settings.System.CONTENT_URI, true, mFormatChangeObserver);
+            resolver.registerContentObserver(Settings.System.CONTENT_URI, true,
+                    mFormatChangeObserver);
         }
     }
 
@@ -466,9 +483,8 @@ public class Watch {
     }
 
     private void onTimeChanged() {
-        mTime.setTimeInMillis(System.currentTimeMillis());
         if (hasWatchface()) {
-            getWatchface().onTimeChanged(mTime);
+            getWatchface().onTimeChanged(DateTime.now());
         }
     }
 
