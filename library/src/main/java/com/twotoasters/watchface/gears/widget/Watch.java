@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.ContentObserver;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -98,6 +99,13 @@ public class Watch {
         }
     };
 
+    private BroadcastReceiver mBatInfoReceiver = new BroadcastReceiver(){
+        @Override
+        public void onReceive(Context arg0, Intent intent) {
+            onBatteryLevelChanged(intent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0));
+        }
+    };
+
     private final Runnable mTicker = new Runnable() {
         public void run() {
             onTimeChanged();
@@ -122,9 +130,8 @@ public class Watch {
     }
 
 
-    private void init(@NonNull IWatchface watchface) {
+    private void init() {
         if (mFormat12 == null || mFormat24 == null) {
-            Locale locale = watchface.getResources().getConfiguration().locale;
             if (mFormat12 == null) {
                 mFormat12 = DEFAULT_FORMAT_12_HOUR;
             }
@@ -133,11 +140,25 @@ public class Watch {
             }
         }
 
-        alarmManager = (AlarmManager) watchface.getContext().getSystemService(Context.ALARM_SERVICE);
+        initAlarmManager();
 
         createTime(mTimeZone);
         // Wait until onAttachedToWindow() to handle the ticker
         chooseFormat(false);
+    }
+
+    private void initAlarmManager() {
+        if(alarmManager == null && notInEditMode()) {
+            alarmManager = (AlarmManager) getWatchface().getContext().getSystemService(Context.ALARM_SERVICE);
+        }
+    }
+
+    private boolean notInEditMode() {
+        try {
+            return !getWatchface().isInEditMode();
+        } catch(NullPointerException npe) {
+            return true;
+        }
     }
 
     private void createTime(String timeZone) {
@@ -336,9 +357,9 @@ public class Watch {
         //LocaleData ld = LocaleData.get(getContext().getResources().getConfiguration().locale);
 
         if (format24Requested) {
-            mFormat = abc(mFormat24, mFormat12, DEFAULT_FORMAT_12_HOUR);
+            mFormat = firstNonNull(mFormat24, mFormat12, DEFAULT_FORMAT_12_HOUR);
         } else {
-            mFormat = abc(mFormat12, mFormat24, DEFAULT_FORMAT_24_HOUR);
+            mFormat = firstNonNull(mFormat12, mFormat24, DEFAULT_FORMAT_24_HOUR);
         }
 
         boolean hadSeconds = mHasSeconds;
@@ -353,10 +374,16 @@ public class Watch {
     }
 
     /**
-     * Returns a if not null, else return b if not null, else return c.
+     * Returns the first item that is not null
      */
-    private static CharSequence abc(CharSequence a, CharSequence b, CharSequence c) {
-        return a == null ? (b == null ? c : b) : a;
+    @SafeVarargs
+    private static <T> T firstNonNull(T... items) {
+        for(T item : items) {
+            if(item != null) {
+                return item;
+            }
+        }
+        return null;
     }
 
     public void onAttachedToWindow() {
@@ -409,8 +436,10 @@ public class Watch {
         filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         filter.addAction(ACTION_KEEP_WATCHFACE_AWAKE);
 
-        if (hasWatchface())
+        if (hasWatchface()) {
             getWatchface().getContext().registerReceiver(mIntentReceiver, filter, null, getWatchface().getHandler());
+            getWatchface().getContext().registerReceiver(mBatInfoReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED), null, getWatchface().getHandler());
+        }
     }
 
     private void registerObserver() {
@@ -422,8 +451,10 @@ public class Watch {
     }
 
     private void unregisterReceiver() {
-        if (hasWatchface())
+        if (hasWatchface()) {
             getWatchface().getContext().unregisterReceiver(mIntentReceiver);
+            getWatchface().getContext().unregisterReceiver(mBatInfoReceiver);
+        }
     }
 
     private void unregisterObserver() {
@@ -438,6 +469,12 @@ public class Watch {
         mTime.setTimeInMillis(System.currentTimeMillis());
         if (hasWatchface()) {
             getWatchface().onTimeChanged(mTime);
+        }
+    }
+
+    private void onBatteryLevelChanged(int percentage) {
+        if (hasWatchface()) {
+            getWatchface().onBatteryLevelChanged(percentage);
         }
     }
 
