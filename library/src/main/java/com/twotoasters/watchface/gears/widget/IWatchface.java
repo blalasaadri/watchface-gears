@@ -5,15 +5,13 @@ import android.content.res.Resources;
 import android.os.Handler;
 import android.view.View;
 
-import org.joda.time.DateTime;
-
 import java.util.Calendar;
 
 public interface IWatchface {
 
     // Implemented by the Watchface
     public void onActiveStateChanged(boolean active);
-    public void onTimeChanged(DateTime time);
+    public void onTimeChanged(Calendar time);
     public void onBatteryLevelChanged(int percentage);
     public boolean handleSecondsInDimMode(); // returning true may have adverse effect on battery life
     public boolean isInEditMode();
