@@ -5,8 +5,10 @@ import android.os.Build;
 import android.util.DisplayMetrics;
 import android.util.Pair;
 
+import java.lang.SuppressWarnings;
 import java.util.ArrayList;
 
+@SuppressWarnings("unused")
 public class DeviceUtils {
 
     private static final ArrayList<String> AMOLED_MODELS;
